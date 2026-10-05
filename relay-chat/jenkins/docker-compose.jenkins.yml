@@ -1,0 +1,19 @@
+# Run Jenkins with the host Docker socket mounted
+#   docker compose -f jenkins/docker-compose.jenkins.yml up -d --build
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    container_name: jenkins
+    user: root               # learning setup only; avoids docker.sock permission errors
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:

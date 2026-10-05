@@ -1,0 +1,7 @@
+services:
+  relay:
+    image: ${IMAGE:-yourdockerhubuser/relay-chat}:${TAG:-latest}
+    container_name: relay-chat
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay</title>
+<style>
+  :root {
+    --paper: #f3f5f1; --card: #ffffff; --ink: #1d2a2f; --muted: #6b7a80;
+    --moss: #2f6b57; --moss-ink: #ffffff; --line: #dde3dd; --side: #e7ece6;
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#151b1d; --card:#20292c; --ink:#e8eeea; --muted:#8fa0a6; --moss:#4c9a7f; --moss-ink:#0f1a16; --line:#2f3b3f; --side:#1b2326; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+
+  #join { height: 100%; display: grid; place-items: center; padding: 1rem; }
+  #join form { width: min(22rem, 100%); display: grid; gap: .75rem; }
+  #join h1 { font-size: 2rem; margin: 0 0 .25rem; letter-spacing: -.02em; }
+  #join p { margin: 0 0 .5rem; color: var(--muted); }
+  label { display: grid; gap: .25rem; font-size: .9rem; color: var(--muted); }
+  input { padding: .65rem .8rem; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  .primary { padding: .7rem 1rem; border: 0; border-radius: 8px; background: var(--moss); color: var(--moss-ink); font-weight: 600; cursor: pointer; }
+
+  #app { height: 100%; display: none; grid-template-columns: 15rem 1fr; }
+  aside { background: var(--side); border-right: 1px solid var(--line); padding: 1rem; overflow: auto; }
+  aside h2 { font-size: 1.1rem; margin: 0 0 .15rem; }
+  aside .sub { color: var(--muted); font-size: .85rem; margin-bottom: 1rem; }
+  #people { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+  #people li::before { content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .5rem; border-radius: 50%; background: var(--moss); }
+  #people li.me { font-weight: 600; }
+  #leave { margin-top: 1.25rem; background: none; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; cursor: pointer; }
+
+  main { display: grid; grid-template-rows: 1fr auto auto; min-height: 0; }
+  #log { overflow-y: auto; padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: .5rem; }
+  .msg { max-width: min(34rem, 85%); padding: .5rem .8rem; border-radius: 12px; background: var(--card); border: 1px solid var(--line); overflow-wrap: anywhere; }
+  .msg.mine { align-self: flex-end; background: var(--moss); color: var(--moss-ink); border-color: var(--moss); }
+  .msg .meta { font-size: .75rem; opacity: .7; margin-bottom: .1rem; }
+  .sys { align-self: center; font-size: .8rem; color: var(--muted); }
+  #typing { min-height: 1.4rem; padding: 0 1.25rem; font-size: .82rem; color: var(--muted); }
+  #send { display: flex; gap: .5rem; padding: .75rem 1.25rem 1rem; border-top: 1px solid var(--line); }
+  #send input { flex: 1; }
+  #status { position: fixed; top: .6rem; right: .8rem; font-size: .78rem; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 8rem; }
+  }
+</style>
+</head>
+<body>
+<section id="join">
+  <form id="joinForm">
+    <div>
+      <h1>Relay</h1>
+      <p>Pick a name and a room. Anyone in the same room sees your messages instantly.</p>
+    </div>
+    <label>Your name <input id="name" maxlength="20" required autocomplete="nickname"></label>
+    <label>Room <input id="room" maxlength="24" value="general" required></label>
+    <button class="primary">Join room</button>
+  </form>
+</section>
+
+<div id="app">
+  <aside>
+    <h2 id="roomTitle"></h2>
+    <div class="sub"><span id="count">0</span> online</div>
+    <ul id="people"></ul>
+    <button id="leave">Leave room</button>
+  </aside>
+  <main>
+    <div id="log" role="log" aria-live="polite"></div>
+    <div id="typing"></div>
+    <form id="send">
+      <input id="text" maxlength="500" placeholder="Write a message" autocomplete="off" aria-label="Message">
+      <button class="primary">Send</button>
+    </form>
+  </main>
+</div>
+<div id="status">connecting…</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const socket = io();
+  let me = '', typingTimer = null;
+  const typers = new Set();
+
+  socket.on('connect', () => { $('status').textContent = 'connected'; if (me) rejoin(); });
+  socket.on('disconnect', () => { $('status').textContent = 'reconnecting…'; });
+
+  const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const scroll = () => { $('log').scrollTop = $('log').scrollHeight; };
+
+  function addMsg(m) {
+    const el = document.createElement('div');
+    el.className = 'msg' + (m.name === me ? ' mine' : '');
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `${m.name} · ${time(m.ts)}`;
+    const body = document.createElement('div');
+    body.textContent = m.text; // textContent prevents HTML injection
+    el.append(meta, body);
+    $('log').append(el);
+    scroll();
+  }
+  function addSys(text) {
+    const el = document.createElement('div');
+    el.className = 'sys';
+    el.textContent = text;
+    $('log').append(el);
+    scroll();
+  }
+
+  let current = { name: '', room: '' };
+  function rejoin() {
+    socket.emit('join', current, ({ room, name, history }) => {
+      me = name; $('roomTitle').textContent = '#' + room;
+      $('log').replaceChildren();
+      history.forEach(addMsg);
+      $('join').style.display = 'none';
+      $('app').style.display = 'grid';
+      $('text').focus();
+    });
+  }
+
+  $('joinForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    current = { name: $('name').value, room: $('room').value };
+    me = current.name.trim() || 'guest';
+    rejoin();
+  });
+
+  $('leave').addEventListener('click', () => { location.reload(); });
+
+  $('send').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = $('text').value.trim();
+    if (!text) return;
+    socket.emit('message', text);
+    socket.emit('typing', false);
+    $('text').value = '';
+  });
+
+  $('text').addEventListener('input', () => {
+    socket.emit('typing', true);
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => socket.emit('typing', false), 1500);
+  });
+
+  socket.on('message', addMsg);
+  socket.on('system', (s) => addSys(s.text));
+  socket.on('presence', (names) => {
+    $('count').textContent = names.length;
+    $('people').replaceChildren(...names.map((n) => {
+      const li = document.createElement('li');
+      li.textContent = n;
+      if (n === me) li.className = 'me';
+      return li;
+    }));
+  });
+  socket.on('typing', ({ name, isTyping }) => {
+    isTyping ? typers.add(name) : typers.delete(name);
+    const list = [...typers];
+    $('typing').textContent = !list.length ? '' :
+      list.length === 1 ? `${list[0]} is typing…` : `${list.join(', ')} are typing…`;
+  });
+</script>
+</body>
+</html>
