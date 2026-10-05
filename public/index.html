@@ -3,172 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relay</title>
+<title>TaskBoard</title>
 <style>
   :root {
-    --paper: #f3f5f1; --card: #ffffff; --ink: #1d2a2f; --muted: #6b7a80;
-    --moss: #2f6b57; --moss-ink: #ffffff; --line: #dde3dd; --side: #e7ece6;
-    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --paper:#f6f1e7; --card:#fffdf8; --ink:#2b2622; --muted:#7a6f64; --line:#e3d9c8;
+    --accent:#c4552d; --accent-ink:#fff;
+    --low:#5d8a6b; --medium:#b8892b; --high:#c4552d;
+    font-family: "Avenir Next","Segoe UI",system-ui,sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --paper:#151b1d; --card:#20292c; --ink:#e8eeea; --muted:#8fa0a6; --moss:#4c9a7f; --moss-ink:#0f1a16; --line:#2f3b3f; --side:#1b2326; }
+    :root { --paper:#1e1a17; --card:#2a2521; --ink:#f0e9dd; --muted:#a39888; --line:#3a332d; --accent:#e0714a; --accent-ink:#1e1a17; }
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); }
-  button, input { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+  body { margin:0; background:var(--paper); color:var(--ink); min-height:100vh; }
+  button, input, select { font:inherit; color:inherit; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
-  #join { height: 100%; display: grid; place-items: center; padding: 1rem; }
-  #join form { width: min(22rem, 100%); display: grid; gap: .75rem; }
-  #join h1 { font-size: 2rem; margin: 0 0 .25rem; letter-spacing: -.02em; }
-  #join p { margin: 0 0 .5rem; color: var(--muted); }
-  label { display: grid; gap: .25rem; font-size: .9rem; color: var(--muted); }
-  input { padding: .65rem .8rem; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
-  .primary { padding: .7rem 1rem; border: 0; border-radius: 8px; background: var(--moss); color: var(--moss-ink); font-weight: 600; cursor: pointer; }
+  header { max-width:68rem; margin:0 auto; padding:1.5rem 1.25rem .5rem; display:flex; flex-wrap:wrap; align-items:end; gap:1rem; justify-content:space-between; }
+  h1 { font-family: Georgia,"Times New Roman",serif; font-size:2rem; margin:0; letter-spacing:-.02em; }
+  #summary { color:var(--muted); font-size:.9rem; }
 
-  #app { height: 100%; display: none; grid-template-columns: 15rem 1fr; }
-  aside { background: var(--side); border-right: 1px solid var(--line); padding: 1rem; overflow: auto; }
-  aside h2 { font-size: 1.1rem; margin: 0 0 .15rem; }
-  aside .sub { color: var(--muted); font-size: .85rem; margin-bottom: 1rem; }
-  #people { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
-  #people li::before { content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .5rem; border-radius: 50%; background: var(--moss); }
-  #people li.me { font-weight: 600; }
-  #leave { margin-top: 1.25rem; background: none; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; cursor: pointer; }
+  form { max-width:68rem; margin:.75rem auto 1rem; padding:0 1.25rem; display:flex; flex-wrap:wrap; gap:.5rem; }
+  form input[type=text] { flex:1 1 16rem; padding:.65rem .8rem; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+  select { padding:.65rem .6rem; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+  .add { padding:.65rem 1.1rem; border:0; border-radius:8px; background:var(--accent); color:var(--accent-ink); font-weight:600; cursor:pointer; }
 
-  main { display: grid; grid-template-rows: 1fr auto auto; min-height: 0; }
-  #log { overflow-y: auto; padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: .5rem; }
-  .msg { max-width: min(34rem, 85%); padding: .5rem .8rem; border-radius: 12px; background: var(--card); border: 1px solid var(--line); overflow-wrap: anywhere; }
-  .msg.mine { align-self: flex-end; background: var(--moss); color: var(--moss-ink); border-color: var(--moss); }
-  .msg .meta { font-size: .75rem; opacity: .7; margin-bottom: .1rem; }
-  .sys { align-self: center; font-size: .8rem; color: var(--muted); }
-  #typing { min-height: 1.4rem; padding: 0 1.25rem; font-size: .82rem; color: var(--muted); }
-  #send { display: flex; gap: .5rem; padding: .75rem 1.25rem 1rem; border-top: 1px solid var(--line); }
-  #send input { flex: 1; }
-  #status { position: fixed; top: .6rem; right: .8rem; font-size: .78rem; color: var(--muted); }
+  #board { max-width:68rem; margin:0 auto; padding:0 1.25rem 2rem; display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; align-items:start; }
+  .col { background:color-mix(in srgb, var(--line) 35%, transparent); border-radius:12px; padding:.75rem; min-height:8rem; }
+  .col h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:.1rem .25rem .6rem; display:flex; justify-content:space-between; }
+  .card { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--medium); border-radius:8px; padding:.6rem .7rem; margin-bottom:.5rem; }
+  .card.low { border-left-color:var(--low); } .card.high { border-left-color:var(--high); }
+  .title { overflow-wrap:anywhere; margin-bottom:.4rem; }
+  .row { display:flex; align-items:center; gap:.3rem; font-size:.78rem; color:var(--muted); }
+  .row .sp { flex:1; }
+  .row button { border:1px solid var(--line); background:none; border-radius:6px; padding:.15rem .5rem; cursor:pointer; }
+  .row button:disabled { opacity:.3; cursor:default; }
+  .empty { color:var(--muted); font-size:.85rem; padding:.25rem; }
+  #msg { max-width:68rem; margin:0 auto; padding:0 1.25rem 1rem; color:var(--high); min-height:1.2rem; font-size:.9rem; }
 
-  @media (max-width: 640px) {
-    #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 8rem; }
-  }
+  @media (max-width:760px) { #board { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
-<section id="join">
-  <form id="joinForm">
-    <div>
-      <h1>Relay</h1>
-      <p>Pick a name and a room. Anyone in the same room sees your messages instantly.</p>
-    </div>
-    <label>Your name <input id="name" maxlength="20" required autocomplete="nickname"></label>
-    <label>Room <input id="room" maxlength="24" value="general" required></label>
-    <button class="primary">Join room</button>
-  </form>
-</section>
+<header>
+  <h1>TaskBoard</h1>
+  <div id="summary">loading…</div>
+</header>
 
-<div id="app">
-  <aside>
-    <h2 id="roomTitle"></h2>
-    <div class="sub"><span id="count">0</span> online</div>
-    <ul id="people"></ul>
-    <button id="leave">Leave room</button>
-  </aside>
-  <main>
-    <div id="log" role="log" aria-live="polite"></div>
-    <div id="typing"></div>
-    <form id="send">
-      <input id="text" maxlength="500" placeholder="Write a message" autocomplete="off" aria-label="Message">
-      <button class="primary">Send</button>
-    </form>
-  </main>
-</div>
-<div id="status">connecting…</div>
+<form id="add">
+  <input type="text" id="title" placeholder="What needs doing?" maxlength="120" aria-label="Task title" required>
+  <select id="priority" aria-label="Priority">
+    <option value="low">Low</option>
+    <option value="medium" selected>Medium</option>
+    <option value="high">High</option>
+  </select>
+  <button class="add">Add task</button>
+</form>
+<div id="msg" role="status"></div>
 
-<script src="/socket.io/socket.io.js"></script>
+<main id="board"></main>
+
 <script>
+  const COLS = [['todo','To do'], ['doing','In progress'], ['done','Done']];
   const $ = (id) => document.getElementById(id);
-  const socket = io();
-  let me = '', typingTimer = null;
-  const typers = new Set();
+  let tasks = [];
 
-  socket.on('connect', () => { $('status').textContent = 'connected'; if (me) rejoin(); });
-  socket.on('disconnect', () => { $('status').textContent = 'reconnecting…'; });
-
-  const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const scroll = () => { $('log').scrollTop = $('log').scrollHeight; };
-
-  function addMsg(m) {
-    const el = document.createElement('div');
-    el.className = 'msg' + (m.name === me ? ' mine' : '');
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = `${m.name} · ${time(m.ts)}`;
-    const body = document.createElement('div');
-    body.textContent = m.text; // textContent prevents HTML injection
-    el.append(meta, body);
-    $('log').append(el);
-    scroll();
-  }
-  function addSys(text) {
-    const el = document.createElement('div');
-    el.className = 'sys';
-    el.textContent = text;
-    $('log').append(el);
-    scroll();
-  }
-
-  let current = { name: '', room: '' };
-  function rejoin() {
-    socket.emit('join', current, ({ room, name, history }) => {
-      me = name; $('roomTitle').textContent = '#' + room;
-      $('log').replaceChildren();
-      history.forEach(addMsg);
-      $('join').style.display = 'none';
-      $('app').style.display = 'grid';
-      $('text').focus();
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.status === 204 ? null : res.json();
+  }
+  const fail = (e) => { $('msg').textContent = e.message; };
+
+  async function load() {
+    try { tasks = await api('/api/tasks'); $('msg').textContent = ''; render(); } catch (e) { fail(e); }
   }
 
-  $('joinForm').addEventListener('submit', (e) => {
+  function render() {
+    const board = $('board');
+    board.replaceChildren();
+    COLS.forEach(([status, label], ci) => {
+      const col = document.createElement('section');
+      col.className = 'col';
+      const items = tasks.filter((t) => t.status === status);
+      const h = document.createElement('h2');
+      h.append(label, Object.assign(document.createElement('span'), { textContent: items.length }));
+      col.append(h);
+      if (!items.length) col.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'Nothing here' }));
+
+      items.forEach((t) => {
+        const card = document.createElement('div');
+        card.className = `card ${t.priority}`;
+        const title = Object.assign(document.createElement('div'), { className: 'title', textContent: t.title });
+        const row = document.createElement('div');
+        row.className = 'row';
+        const left = btn('←', 'Move left', ci === 0, () => move(t, COLS[ci - 1][0]));
+        const right = btn('→', 'Move right', ci === COLS.length - 1, () => move(t, COLS[ci + 1][0]));
+        const prio = Object.assign(document.createElement('span'), { textContent: t.priority });
+        const sp = Object.assign(document.createElement('span'), { className: 'sp' });
+        const del = btn('Delete', 'Delete task', false, () => remove(t));
+        row.append(left, right, prio, sp, del);
+        card.append(title, row);
+        col.append(card);
+      });
+      board.append(col);
+    });
+    const done = tasks.filter((t) => t.status === 'done').length;
+    $('summary').textContent = `${tasks.length} tasks · ${done} done`;
+  }
+
+  function btn(text, label, disabled, onClick) {
+    const b = document.createElement('button');
+    b.textContent = text; b.title = label; b.setAttribute('aria-label', label);
+    b.disabled = disabled; b.addEventListener('click', onClick);
+    return b;
+  }
+
+  async function move(t, status) { try { await api(`/api/tasks/${t.id}`, { method: 'PATCH', body: { status } }); load(); } catch (e) { fail(e); } }
+  async function remove(t) { try { await api(`/api/tasks/${t.id}`, { method: 'DELETE' }); load(); } catch (e) { fail(e); } }
+
+  $('add').addEventListener('submit', async (e) => {
     e.preventDefault();
-    current = { name: $('name').value, room: $('room').value };
-    me = current.name.trim() || 'guest';
-    rejoin();
+    try {
+      await api('/api/tasks', { method: 'POST', body: { title: $('title').value, priority: $('priority').value } });
+      $('title').value = '';
+      load();
+    } catch (err) { fail(err); }
   });
 
-  $('leave').addEventListener('click', () => { location.reload(); });
-
-  $('send').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const text = $('text').value.trim();
-    if (!text) return;
-    socket.emit('message', text);
-    socket.emit('typing', false);
-    $('text').value = '';
-  });
-
-  $('text').addEventListener('input', () => {
-    socket.emit('typing', true);
-    clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => socket.emit('typing', false), 1500);
-  });
-
-  socket.on('message', addMsg);
-  socket.on('system', (s) => addSys(s.text));
-  socket.on('presence', (names) => {
-    $('count').textContent = names.length;
-    $('people').replaceChildren(...names.map((n) => {
-      const li = document.createElement('li');
-      li.textContent = n;
-      if (n === me) li.className = 'me';
-      return li;
-    }));
-  });
-  socket.on('typing', ({ name, isTyping }) => {
-    isTyping ? typers.add(name) : typers.delete(name);
-    const list = [...typers];
-    $('typing').textContent = !list.length ? '' :
-      list.length === 1 ? `${list[0]} is typing…` : `${list.join(', ')} are typing…`;
-  });
+  load();
 </script>
 </body>
 </html>

@@ -1,88 +1,118 @@
 const express = require('express');
-const http = require('http');
+const fs = require('fs');
 const path = require('path');
-const { Server } = require('socket.io');
+const crypto = require('crypto');
 
-const HISTORY_LIMIT = 50;
-const MAX_TEXT = 500;
+const STATUSES = ['todo', 'doing', 'done'];
+const PRIORITIES = ['low', 'medium', 'high'];
 
-function createApp() {
-  const app = express();
-  const server = http.createServer(app);
-  const io = new Server(server);
+// Tiny JSON-file store: loads on start, writes atomically on every change.
+function createStore(file) {
+  let tasks = [];
+  try { tasks = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { tasks = []; }
 
-  const history = new Map(); // room -> [messages]
-  const startedAt = Date.now();
-
-  app.use(express.static(path.join(__dirname, 'public')));
-
-  app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', uptime: Math.round((Date.now() - startedAt) / 1000) });
-  });
-
-  app.get('/metrics', (req, res) => {
-    res.json({
-      connections: io.engine.clientsCount,
-      rooms: [...history.keys()].length,
-      messagesStored: [...history.values()].reduce((n, h) => n + h.length, 0),
-    });
-  });
-
-  const cleanRoom = (r) => String(r || 'general').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) || 'general';
-  const cleanName = (n) => String(n || '').trim().slice(0, 20) || 'guest';
-
-  const usersIn = async (room) => {
-    const sockets = await io.in(room).fetchSockets();
-    return sockets.map((s) => s.data.name).sort();
+  const save = () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(tasks, null, 2));
+    fs.renameSync(tmp, file);
   };
 
-  io.on('connection', (socket) => {
-    socket.on('join', async ({ name, room }, ack) => {
-      if (socket.data.room) socket.leave(socket.data.room);
-      socket.data.name = cleanName(name);
-      socket.data.room = cleanRoom(room);
-      const r = socket.data.room;
-      socket.join(r);
+  return {
+    list: () => tasks,
+    add(task) { tasks.push(task); save(); return task; },
+    find: (id) => tasks.find((t) => t.id === id),
+    update(id, patch) {
+      const t = tasks.find((x) => x.id === id);
+      if (!t) return null;
+      Object.assign(t, patch, { updatedAt: new Date().toISOString() });
+      save();
+      return t;
+    },
+    remove(id) {
+      const i = tasks.findIndex((t) => t.id === id);
+      if (i === -1) return false;
+      tasks.splice(i, 1);
+      save();
+      return true;
+    },
+  };
+}
 
-      if (!history.has(r)) history.set(r, []);
-      if (typeof ack === 'function') ack({ room: r, name: socket.data.name, history: history.get(r) });
+function validate(body, { partial }) {
+  const out = {};
+  if (body.title !== undefined || !partial) {
+    const title = String(body.title ?? '').trim();
+    if (!title || title.length > 120) return { error: 'title must be 1-120 characters' };
+    out.title = title;
+  }
+  if (body.status !== undefined) {
+    if (!STATUSES.includes(body.status)) return { error: `status must be one of ${STATUSES.join(', ')}` };
+    out.status = body.status;
+  }
+  if (body.priority !== undefined) {
+    if (!PRIORITIES.includes(body.priority)) return { error: `priority must be one of ${PRIORITIES.join(', ')}` };
+    out.priority = body.priority;
+  }
+  return { value: out };
+}
 
-      socket.to(r).emit('system', { text: `${socket.data.name} joined`, ts: Date.now() });
-      io.to(r).emit('presence', await usersIn(r));
-    });
+function createApp({ dataFile = process.env.DATA_FILE || path.join(__dirname, 'data', 'tasks.json') } = {}) {
+  const app = express();
+  const store = createStore(dataFile);
 
-    socket.on('message', (text) => {
-      const { room, name } = socket.data;
-      const body = String(text || '').trim().slice(0, MAX_TEXT);
-      if (!room || !body) return;
-      const msg = { name, text: body, ts: Date.now() };
-      const h = history.get(room);
-      h.push(msg);
-      if (h.length > HISTORY_LIMIT) h.shift();
-      io.to(room).emit('message', msg);
-    });
+  app.use(express.json({ limit: '10kb' }));
+  app.use(express.static(path.join(__dirname, 'public')));
 
-    socket.on('typing', (isTyping) => {
-      const { room, name } = socket.data;
-      if (room) socket.to(room).emit('typing', { name, isTyping: !!isTyping });
-    });
+  app.get('/health', (req, res) => res.json({ status: 'ok', tasks: store.list().length }));
 
-    socket.on('disconnecting', () => {
-      const { room, name } = socket.data;
-      if (!room) return;
-      socket.to(room).emit('system', { text: `${name} left`, ts: Date.now() });
-      // presence refresh after the socket has actually left
-      setImmediate(async () => io.to(room).emit('presence', await usersIn(room)));
-    });
+  app.get('/api/tasks', (req, res) => res.json(store.list()));
+
+  app.get('/api/stats', (req, res) => {
+    const counts = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+    store.list().forEach((t) => { counts[t.status] += 1; });
+    res.json({ total: store.list().length, ...counts });
   });
 
-  return { app, server, io };
+  app.post('/api/tasks', (req, res) => {
+    const { value, error } = validate(req.body || {}, { partial: false });
+    if (error) return res.status(400).json({ error });
+    const now = new Date().toISOString();
+    const task = store.add({
+      id: crypto.randomUUID(),
+      title: value.title,
+      status: value.status || 'todo',
+      priority: value.priority || 'medium',
+      createdAt: now,
+      updatedAt: now,
+    });
+    res.status(201).json(task);
+  });
+
+  app.patch('/api/tasks/:id', (req, res) => {
+    const { value, error } = validate(req.body || {}, { partial: true });
+    if (error) return res.status(400).json({ error });
+    const task = store.update(req.params.id, value);
+    if (!task) return res.status(404).json({ error: 'task not found' });
+    res.json(task);
+  });
+
+  app.delete('/api/tasks/:id', (req, res) => {
+    if (!store.remove(req.params.id)) return res.status(404).json({ error: 'task not found' });
+    res.status(204).end();
+  });
+
+  // invalid JSON bodies etc.
+  app.use((err, req, res, next) => {
+    res.status(err.status || 500).json({ error: err.status ? 'bad request' : 'server error' });
+  });
+
+  return app;
 }
 
 if (require.main === module) {
-  const { server } = createApp();
   const PORT = process.env.PORT || 3000;
-  server.listen(PORT, () => console.log(`Relay chat listening on ${PORT}`));
+  const server = createApp().listen(PORT, () => console.log(`TaskBoard listening on ${PORT}`));
   const stop = () => server.close(() => process.exit(0));
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
